@@ -1,3 +1,14 @@
 flask-socketio
 opencv-python
 numpy
+ultralytics
+opencv-contrib-python
+pandas
+joblib
+mediapipe==0.10.9
+flask
+torch
+yolov5
+scikit-learn
+xgboost
+tqdm
