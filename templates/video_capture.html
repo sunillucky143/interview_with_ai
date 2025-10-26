@@ -2,37 +2,254 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Live_Video</title>
+    <title>AI Proctoring System</title>
     <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
     <style>
-        #videoElement {
-            width: 640px;
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .video-section {
+            flex: 1;
+        }
+        .status-section {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        #videoElement, #processedVideo {
+            width: 100%;
+            max-width: 640px;
             height: 480px;
             background-color: #666;
+            border-radius: 10px;
+        }
+        .status-card {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            border-left: 4px solid #ddd;
+        }
+        .status-normal {
+            background-color: #d4edda;
+            border-left-color: #28a745;
+        }
+        .status-warning {
+            background-color: #fff3cd;
+            border-left-color: #ffc107;
+        }
+        .status-cheating {
+            background-color: #f8d7da;
+            border-left-color: #dc3545;
+        }
+        .alert {
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 5px 0;
+        }
+        .metric {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+        h1, h2 {
+            color: #333;
+        }
+        .camera-permission {
+            background-color: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            text-align: center;
+        }
+        .permission-button {
+            background-color: #2196f3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        .permission-button:hover {
+            background-color: #1976d2;
+        }
+        .permission-button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .error-message {
+            background-color: #ffebee;
+            color: #c62828;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .success-message {
+            background-color: #e8f5e8;
+            color: #2e7d32;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
         }
     </style>
 </head>
 <body>
-    <h2>Video Transmit</h2>
-    <video autoplay playsinline id="VideoElement"></video>
+    <h1>AI Proctoring System</h1>
+    
+    <!-- Camera Permission Section -->
+    <div id="cameraPermission" class="camera-permission">
+        <h3>Camera Access Required</h3>
+        <p>This application needs access to your camera for proctoring functionality.</p>
+        <p><strong>Note:</strong> If you're accessing from a home network, you may need to use HTTPS or localhost.</p>
+        <button id="requestCamera" class="permission-button">Request Camera Access</button>
+        <button id="checkCamera" class="permission-button">Check Camera Status</button>
+        <div id="cameraStatus"></div>
+    </div>
+    
+    <div class="container" id="mainContainer" style="display: none;">
+        <div class="video-section">
+            <h2>Live Video Feed</h2>
+            <video autoplay playsinline id="VideoElement"></video>
+            <h3>Processed Video (with AI Analysis)</h3>
+            <img id="processedVideo" alt="Processed video will appear here">
+        </div>
+        <div class="status-section">
+            <h2>Proctoring Status</h2>
+            <div id="statusCard" class="status-card status-normal">
+                <h3 id="statusText">Normal</h3>
+                <div id="alerts"></div>
+            </div>
+            
+            <h3>Real-time Metrics</h3>
+            <div class="metric">
+                <span>Eye Direction:</span>
+                <span id="eyeDirection">Center</span>
+            </div>
+            <div class="metric">
+                <span>Head Pose:</span>
+                <span id="headPose">Facing front</span>
+            </div>
+            <div class="metric">
+                <span>FPS:</span>
+                <span id="fps">0</span>
+            </div>
+        </div>
+    </div>
     <script>
         const video = document.getElementById("VideoElement");
+        const processedVideo = document.getElementById("processedVideo");
         const socket = io(); // connects to the backend automatically
 
-        //Access webcam video stream
-        navigator.mediaDevices.getUserMedia({ video: true})
+        // DOM elements for status display
+        const statusCard = document.getElementById("statusCard");
+        const statusText = document.getElementById("statusText");
+        const alertsDiv = document.getElementById("alerts");
+        const eyeDirection = document.getElementById("eyeDirection");
+        const headPose = document.getElementById("headPose");
+        const fps = document.getElementById("fps");
+        
+        // Camera permission elements
+        const cameraPermission = document.getElementById("cameraPermission");
+        const mainContainer = document.getElementById("mainContainer");
+        const requestCameraBtn = document.getElementById("requestCamera");
+        const checkCameraBtn = document.getElementById("checkCamera");
+        const cameraStatus = document.getElementById("cameraStatus");
+        
+        let isCameraActive = false;
+
+        // Camera permission functions
+        function showCameraStatus(message, isError = false) {
+            cameraStatus.innerHTML = `<div class="${isError ? 'error-message' : 'success-message'}">${message}</div>`;
+        }
+
+        function checkCameraAvailability() {
+            fetch('/check_camera')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showCameraStatus(data.message, false);
+                    } else {
+                        showCameraStatus(data.message, true);
+                    }
+                })
+                .catch(error => {
+                    showCameraStatus(`Error checking camera: ${error.message}`, true);
+                });
+        }
+
+        function requestCameraAccess() {
+            requestCameraBtn.disabled = true;
+            requestCameraBtn.textContent = 'Requesting...';
+            
+            navigator.mediaDevices.getUserMedia({ 
+                video: { 
+                    width: { ideal: 640 },
+                    height: { ideal: 480 },
+                    facingMode: 'user'
+                } 
+            })
             .then((stream) => {
                 video.srcObject = stream;
                 video.play();
+                isCameraActive = true;
+                
+                // Hide permission section and show main interface
+                cameraPermission.style.display = 'none';
+                mainContainer.style.display = 'flex';
+                
+                // Start frame processing
+                startFrameProcessing();
+                
+                showCameraStatus('Camera access granted! Starting proctoring...', false);
+            })
+            .catch(err => {
+                console.error("Error accessing webcam", err);
+                requestCameraBtn.disabled = false;
+                requestCameraBtn.textContent = 'Request Camera Access';
+                
+                let errorMessage = 'Error accessing webcam: ';
+                if (err.name === 'NotAllowedError') {
+                    errorMessage += 'Camera permission denied. Please allow camera access and refresh the page.';
+                } else if (err.name === 'NotFoundError') {
+                    errorMessage += 'No camera found. Please connect a camera and try again.';
+                } else if (err.name === 'NotReadableError') {
+                    errorMessage += 'Camera is already in use by another application.';
+                } else if (err.name === 'OverconstrainedError') {
+                    errorMessage += 'Camera constraints cannot be satisfied.';
+                } else if (err.name === 'SecurityError') {
+                    errorMessage += 'Camera access blocked due to security restrictions. Try accessing via HTTPS or localhost.';
+                } else {
+                    errorMessage += err.message;
+                }
+                
+                showCameraStatus(errorMessage, true);
+            });
+        }
 
-                //Create a canvas to capture the frames
-                const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d')
-                canvas.width = 640;
-                canvas.height = 480;
+        function startFrameProcessing() {
+            // Create a canvas to capture the frames
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 640;
+            canvas.height = 480;
 
-                // Capture and send the frames at approx 10 fps
-                setInterval(() => {
+            // Capture and send the frames at 10 fps
+            setInterval(() => {
+                if (isCameraActive) {
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
                     // Get Image as base64-encoded jpeg
@@ -40,11 +257,64 @@
 
                     // Emit frame to backend on 'video_frame' event
                     socket.emit('video_frame', frameData);
-                }, 1000);
-            })
-            .catch(err => {
-                console.error("Error accessing webcame", err);
-            })
+                }
+            }, 100); // 10 FPS = 100ms interval
+        }
+
+        // Event listeners
+        requestCameraBtn.addEventListener('click', requestCameraAccess);
+        checkCameraBtn.addEventListener('click', checkCameraAvailability);
+
+        // Listen for proctoring status updates
+        socket.on('proctoring_status', function(data) {
+            // Update status card
+            statusCard.className = `status-card status-${data.status.toLowerCase().replace(' ', '-')}`;
+            statusText.textContent = data.status;
+            
+            // Update alerts
+            alertsDiv.innerHTML = '';
+            if (data.alerts && data.alerts.length > 0) {
+                data.alerts.forEach(alert => {
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert';
+                    alertDiv.textContent = alert;
+                    alertsDiv.appendChild(alertDiv);
+                });
+            }
+            
+            // Update metrics
+            eyeDirection.textContent = data.eye_direction || 'Center';
+            headPose.textContent = data.head_pose || 'Facing front';
+            fps.textContent = data.fps ? data.fps.toFixed(1) : '0';
+            
+            // Update processed video
+            if (data.processed_frame) {
+                processedVideo.src = data.processed_frame;
+            }
+        });
+
+        // Listen for errors
+        socket.on('proctoring_error', function(data) {
+            console.error('Proctoring error:', data.error);
+            statusCard.className = 'status-card status-warning';
+            statusText.textContent = 'Error';
+            alertsDiv.innerHTML = `<div class="alert">Error: ${data.error}</div>`;
+        });
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            // Check if we're on localhost or HTTPS
+            const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+            const isHttps = window.location.protocol === 'https:';
+            
+            if (isLocalhost || isHttps) {
+                // Auto-request camera on localhost or HTTPS
+                requestCameraAccess();
+            } else {
+                // Show permission request for other cases
+                showCameraStatus('Please click "Request Camera Access" to start the proctoring system.', false);
+            }
+        });
     </script>
 </body>
 </html>
